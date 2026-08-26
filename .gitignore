@@ -1,0 +1,46 @@
+# --- data: large, public, re-downloadable, reproducible ---------------------
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# --- generated reports ------------------------------------------------------
+reports/*
+!reports/.gitkeep
+
+# --- experiment tracking / models -------------------------------------------
+mlruns/
+mlartifacts/
+*.pkl
+*.joblib
+*.onnx
+
+# --- python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- tooling ----------------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# --- config / secrets -------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- editors / os -----------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

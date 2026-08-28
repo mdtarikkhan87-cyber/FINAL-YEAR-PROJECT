@@ -136,8 +136,12 @@ export default function AboutPage() {
                     <td className="px-4 py-3 text-ink-500">{f.fold}</td>
                     <td className="px-4 py-3 font-mono text-xs text-ink-700">{f.train}</td>
                     <td className="px-4 py-3 font-mono text-xs text-ink-700">{f.test}</td>
-                    <td className="px-4 py-3 text-right font-mono text-ink-900">{f.rmse}</td>
-                    <td className="px-4 py-3 text-right font-mono text-ink-500">{f.base}</td>
+                    <td className="px-4 py-3 text-right font-mono text-ink-900">
+                      {f.rmse.toFixed(1)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-ink-500">
+                      {f.base.toFixed(1)}
+                    </td>
                     <td className="px-4 py-3 text-right font-mono font-semibold text-emerald-700">
                       {f.impr}
                     </td>

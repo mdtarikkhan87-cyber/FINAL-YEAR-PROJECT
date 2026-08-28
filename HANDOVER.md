@@ -1,7 +1,7 @@
 # Handover — Predicting PERM Visa Processing Time & Outcome
 
-**Last session:** 2026-08-27
-**Phase:** 1 of ~11 — scaffold + synthetic data generator complete. No models yet.
+**Last session:** 2026-08-28
+**Phase:** 8 of ~11 — through to a working Next.js frontend calling the FastAPI service.
 
 ---
 
@@ -11,8 +11,8 @@
 |---|---|
 | Project root | `C:\Users\mdtar\OneDrive\Desktop\final year project\` |
 | Python | 3.12.10 (system install — **no virtualenv created yet**) |
-| Installed | pandas 2.3.3, numpy 2.2.6 only. `requirements.txt` has **not** been `pip install`-ed. |
-| Version control | **Not a git repo.** `.gitignore` exists but nothing is tracked. `git init` is an open task. |
+| Installed | pandas 2.3.3, numpy 2.2.6, scikit-learn 1.7.2, xgboost 3.4.1, mlflow 3.15.2, pyarrow 25.0.1, matplotlib 3.10.6. Full `requirements.txt` still not installed (no shap, no fairlearn, no fastapi, no streamlit). |
+| Version control | git repo, pushed to https://github.com/mdtarikkhan87-cyber/FINAL-YEAR-PROJECT (**public**). All phases through the Next.js frontend are committed. |
 
 The project used to live at `Desktop\toks\perm-visa-ml\`. It was moved out on 2026-08-27
 because `toks` holds an unrelated frontend/design project. **Do not write to `toks`.**
@@ -31,16 +31,43 @@ final year project/
 │   ├── README.md                      DOL source, which FYs/quarters to pull, placement rules
 │   ├── raw/
 │   │   └── perm_synthetic_sample.csv  50,000 x 58, 21 MB  (GITIGNORED — regenerate, don't hunt for it)
-│   └── processed/                     empty
+│   ├── processed/                     train/test.parquet + metadata.json (GITIGNORED)
+│   └── processed_decision/            decision-split copy for the §7.1 comparison (GITIGNORED)
 ├── src/
 │   ├── data_prep/
-│   │   └── make_synthetic.py          1,213 lines. The only real code in the project.
-│   ├── models/                        empty (package stub)
-│   ├── explainability/                empty (package stub)
-│   ├── fairness/                      empty (package stub)
-│   └── validation/                    empty (package stub)
-├── api/                               empty (package stub)
-├── app/                               empty (package stub)
+│   │   ├── make_synthetic.py          synthetic DOL-shaped data generator
+│   │   ├── reference.py               state/region maps, wage units, status map, SOC crosswalk
+│   │   ├── schema.py                  column alias resolution + validation (raises SchemaError)
+│   │   ├── cleaning.py                field-level standardisation (dates, names, SOC, wages, state)
+│   │   ├── features.py                target engineering + FEATURE_COLUMNS allow-list
+│   │   ├── split.py                   temporal split + cohort-censoring diagnostics
+│   │   └── build_dataset.py           orchestrator + CLI
+│   ├── models/
+│   │   ├── data.py                loads processed data; excludes the split-year feature
+│   │   ├── evaluate.py            metrics, always paired with a baseline
+│   │   ├── tracking.py            MLflow (sqlite) setup, figures, artifact saving
+│   │   ├── train_regressor.py     XGBoost -> processing_days
+│   │   ├── train_classifier.py    XGBoost -> outcome
+│   │   └── artifacts/             saved models (GITIGNORED)
+│   ├── explainability/
+│   │   ├── shap_analysis.py       TreeSHAP + additivity check, importance, case selection
+│   │   └── run_shap.py            CLI; writes reports/shap_report.md + reports/shap/*.png
+│   ├── fairness/
+│   │   ├── metrics.py             fairlearn MetricFrames, disparity calcs, flagging
+│   │   └── run_audit.py           CLI; writes reports/fairness_report.md + reports/fairness/*.png
+│   └── validation/
+│       ├── harness.py             fold construction, per-fold fit/score, trend analysis
+│       └── run_validation.py      CLI; writes reports/temporal_validation_report.md
+├── api/
+│   ├── schemas.py                     Pydantic request/response models + validation
+│   ├── store.py                       bounded in-memory prediction + SHAP store
+│   ├── predictor.py                   model loading, feature derivation, SHAP
+│   └── main.py                        FastAPI app (3 endpoints + /health)
+├── app/                               empty (Streamlit stub — superseded by web/)
+├── web/                               Next.js 16 + Tailwind + recharts frontend
+│   ├── app/{page,predict,about}       landing / predictor / methodology
+│   ├── components/                    Nav, CaseForm, OutcomeChart, ShapChart, …
+│   └── lib/api.ts                     typed client for the FastAPI service
 ├── reports/                           empty
 └── paper/                             empty
 ```
@@ -57,11 +84,27 @@ Every `src/` subdir, `api/`, and `app/` has an `__init__.py`, so `python -m src.
 
 Nothing else was built. No models, no pipeline, no API, no app, no tests.
 
+## 3b. What was done on 2026-08-28
+
+Built the data preparation pipeline (`src/data_prep/`, 6 modules) and ran it on the
+synthetic sample: load → resolve/validate schema → clean → engineer targets → temporal
+split → write `data/processed/`.
+
+**The headline finding is in §7.1 below: splitting on filing year produces a censored
+test set.** It is the one thing to read before doing anything else with this data.
+
+Then built `src/models/` and trained both XGBoost models. **Both are currently at or
+near baseline — see §7.1 and §7.3.** Still no API, no app, no tests.
+
+Installed into system Python (not a venv): `xgboost` 3.4.1, `mlflow` 3.15.2, and
+`pyarrow` 25.0.1 (an mlflow dependency). Because pyarrow now exists,
+`build_dataset.py --format auto` writes **parquet** rather than CSV.
+
 ---
 
 ## 4. How to run it
 
-Regenerate the dataset (this is the only runnable thing in the project today):
+Regenerate the synthetic dataset:
 
 ```bash
 python -m src.data_prep.make_synthetic
@@ -84,6 +127,132 @@ python -m src.data_prep.make_synthetic --rows 5000 --no-preview
 | `--no-preview` | skip the printed summary |
 
 Output is a deterministic function of `--seed`, `--rows`, `--employers`, `--years`.
+
+### Data preparation pipeline
+
+```bash
+python -m src.data_prep.build_dataset
+```
+
+Reads every CSV/Excel file in `data/raw/`, resolves their columns onto the canonical
+schema, cleans, engineers targets, splits chronologically, and writes
+`data/processed/{train,test}.{parquet|csv}` plus `metadata.json` (provenance, row
+accounting, split definition, cohort diagnostics).
+
+| Flag | Effect |
+|---|---|
+| `--split-on {filing,decision}` | which fiscal year keys the split (default `filing` — **see §7.1**) |
+| `--test-years N` | how many of the newest cohorts form the test set (default 1) |
+| `--drop-incomplete-cohorts` | exclude cohorts whose observation window is censored |
+| `--format {auto,parquet,csv}` | `auto` uses parquet when pyarrow is installed, else CSV |
+| `--raw-dir` / `--out-dir` / `--pattern` | override input/output locations |
+| `--no-preview` | skip the printed report |
+
+A file whose columns cannot be resolved fails with `SchemaError` (exit 2), naming each
+missing column, its accepted raw spellings, and the closest column actually present. Add
+new spellings to `COLUMN_ALIASES` in `schema.py` — never to the cleaning code.
+
+### Model training
+
+```bash
+python -m src.models.train_regressor
+```
+
+```bash
+python -m src.models.train_classifier
+```
+
+| Flag | Effect |
+|---|---|
+| `--data-dir` | which processed dataset to use (default `data/processed`) |
+| `--val-strategy {random,temporal}` | early-stopping hold-out (default `random` — **see §7.3**) |
+| `--keep-year-feature` | keep the split-year column as a feature (**breaks the model** — §7.3) |
+| `--merge-expired` | classifier only: fold `certified_expired` into `certified` (3 classes) |
+| `--balanced` | classifier only: balanced sample weights; macro-F1 up, accuracy down |
+| `--log-target` | regressor only: train on `log1p(days)`; metrics stay in days |
+| `--n-estimators` / `--learning-rate` / `--max-depth` / `--early-stopping-rounds` | XGBoost tuning |
+
+Models save to `src/models/artifacts/` as a native XGBoost `.json` (portable) plus a
+`_bundle.joblib` carrying the fitted estimator, feature order, and category levels —
+the booster alone cannot reproduce a prediction without those.
+
+### SHAP explainability
+
+```bash
+python -m src.explainability.run_shap
+```
+
+Explains whichever models sit in `src/models/artifacts/`, on the test set from
+`--data-dir`. Writes `reports/shap_report.md` and 13 PNGs to `reports/shap/`.
+`--max-rows` caps rows explained (default 3000; TreeSHAP is exact regardless).
+
+Both models must come from the **same** `--data-dir` — the artifacts directory holds one
+bundle per task, so training the regressor on one split and the classifier on another
+leaves an incoherent pair and the report will silently compare unlike things.
+
+### Fairness audit
+
+```bash
+python -m src.fairness.run_audit
+```
+
+Audits both saved models across employer size, SOC major group, and worksite region.
+Writes `reports/fairness_report.md` plus 2 PNGs to `reports/fairness/`.
+`--min-group-size` (default 30) sets the size below which groups are shown but never
+flagged.
+
+### Temporal validation harness
+
+```bash
+python -m src.validation.run_validation
+```
+
+Re-fits both models once per year boundary and writes
+`reports/temporal_validation_report.md`, two PNGs to `reports/validation/`, and two CSVs
+of the per-fold metrics.
+
+| Flag | Effect |
+|---|---|
+| `--scheme {expanding,rolling}` | growing vs fixed-length training window (default expanding) |
+| `--window N` | training years per fold when rolling (default 3) |
+| `--min-train-years N` | minimum training years before the first fold (default 2) |
+| `--keep-year-features` | keep absolute-year columns — **worse in 4 of 5 folds**, see §7.6 |
+| `--balanced` | balanced class weights in the classifier folds |
+
+### API
+
+```bash
+uvicorn api.main:app --reload
+```
+
+Then http://127.0.0.1:8000/docs for interactive Swagger UI.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /predict/processing-time` | days from filing to decision, + estimated decision date |
+| `POST /predict/outcome` | predicted class + probability for all four outcomes |
+| `GET /explain/{prediction_id}` | SHAP attribution for a stored prediction |
+| `GET /health` | model + store status |
+
+The request is a **case**, not a feature vector — `soc_major_group`, `wage_ratio`,
+`worksite_region` and the rest are derived server-side by importing the same
+`src/data_prep` functions the training pipeline used. Re-implementing them in the API
+would create training/serving skew that fails silently.
+
+Predictions and their SHAP values are held in a bounded in-memory store (500 most recent,
+oldest evicted, cleared on restart). `/explain` returns the attribution for the exact row
+that produced the answer rather than recomputing it. Every prediction response carries a
+`model_quality` block stating the model's test metric, its baseline, and its known
+weaknesses — the outcome model's caveat says outright that it does not beat its baseline.
+
+### MLflow
+
+```bash
+mlflow ui --backend-store-uri "sqlite:///mlflow.db"
+```
+
+Run from the project root, then open http://127.0.0.1:5000. Experiments:
+`perm-processing-time` and `perm-outcome`.
 
 ---
 
@@ -146,6 +315,207 @@ not developers).
 
 ## 7. Open decisions — these need your call before the next phase
 
+### 7.1 Which date does the temporal split key on? (MOST IMPORTANT)
+
+Measured on the synthetic sample, 50,000 rows, one test cohort:
+
+| `--split-on` | test rows | test % | test mean days | test max days | verdict |
+|---|---|---|---|---|---|
+| `filing` (current default) | 1,101 | 2.2% | 241 | **356** | censored — unusable |
+| `filing --drop-incomplete-cohorts` | 7,219 | 18.3% | 407 | 980 | valid, costs 4 cohorts |
+| `decision` | 7,000 | 14.0% | 371 | 1,060 | valid, keeps everything |
+
+A disclosure extract contains only *decided* cases. Cases filed in the newest year that
+are still pending are simply absent, so the newest **filing** cohort holds only the fast
+ones: its maximum observed processing time is 356 days when the training set's 90th
+percentile is 577. The same bias hits the outcome target — denied cases take longer, so
+the censored test set shows 2.4% denials against 5.6% in training. A processing-time
+model scored on that test set would look excellent and mean nothing.
+
+`--split-on decision` has no censored cohorts by construction: the file is *grouped* by
+decision date, so every decision in the year is present. Its cost is that some training
+cases were filed after some test cases.
+
+**Recommendation: `--split-on decision`.** The current default is `filing` because that
+is what was specified; change the default in `build_dataset.py` once you have decided.
+Whichever you pick, state it and the reasoning in `paper/` — this is exactly the kind of
+methodological choice the "temporal validation" pillar is supposed to demonstrate.
+
+### 7.3 Both models are currently at or near baseline
+
+| Model | split | metric | model | baseline |
+|---|---|---|---|---|
+| Regressor | filing | RMSE (days) | 124.6 | **68.5** (worse) |
+| Regressor | decision | RMSE (days) | **155.8** | 182.5 (+14.7%) |
+| Classifier | filing | ROC AUC (OvR) | 0.498 | chance |
+| Classifier | decision | ROC AUC (OvR) | 0.523 | chance |
+
+Three findings, in order of importance:
+
+1. **The split-year column cannot be a feature.** `filing_fiscal_year` was the
+   highest-gain feature (38.9%) during fitting, then took an unseen value (2024) at
+   test time. Trees cannot extrapolate past their fitted range, so it silently became a
+   constant and the model scored *worse than predicting the training median*.
+   `data.load_modelling_data(drop_split_year=True)` now excludes it by default;
+   `--keep-year-feature` restores the broken behaviour for comparison. Seasonality still
+   reaches the model through `filing_fiscal_quarter` and `filing_month`, which repeat.
+
+2. **Early stopping needs a random within-train hold-out, not a temporal one.** With a
+   temporal hold-out, the last training cohort sits in a different backlog regime, so
+   every additional tree looks worse and early stopping selects round 0 — a one-tree
+   model. Switching to a random hold-out drawn from inside the training period (leaking
+   nothing; the test set is untouched) took the regressor from `best_iteration=0` to 164.
+   Controlled by `--val-strategy {random,temporal}`, default `random`.
+
+3. **Outcome is barely predictable from the observable features, and that is correct.**
+   The generator's dominant denial driver is the *latent* audit variable, which is
+   deliberately not a column because real disclosure files do not have one. Per-class
+   OvR AUC on the decision split: denied 0.574, withdrawn 0.521, certified_expired 0.473.
+   The `denied` probability never exceeds 0.36 so it is never the argmax, which is why
+   the confusion matrix is degenerate. `--balanced` makes rare classes predictable at all
+   (macro-F1 0.233 -> 0.245) at the cost of accuracy (0.871 -> 0.842), but recall stays
+   near zero. Do not tune this away — it is a property of the data, not a bug.
+
+**The principled next step for the regressor** is a *recent-backlog* feature: the median
+processing time of cases **decided in the months before this case was filed**. That is
+knowable at filing time, uses only past decisions, and proxies the regime the year column
+was illegitimately standing in for. It is the single change most likely to move the
+regression metrics.
+
+### 7.4 SHAP found a second out-of-range year feature
+
+`drop_split_year` only excludes the column the split was *keyed* on. On the decision
+split that is `decision_fiscal_year`, so **`filing_fiscal_year` stayed in the feature set
+and took 37.5% of the regressor's SHAP attribution.** Its training range is 2016-2023, but
+15.7% of test rows are filed in FY2024. Splitting the test metric on that boundary:
+
+| test subset | n | model RMSE | baseline RMSE |
+|---|---:|---:|---:|
+| filing year in range | 5,899 | 167.4 | 197.2 (beats baseline) |
+| filing year out of range | 1,101 | 64.8 | 58.8 (**worse than baseline**) |
+
+The headline +14.7% RMSE averages these together and hides the second row. The fix is to
+exclude *every* absolute-year column under a temporal split, not just the split key —
+or better, replace them with the recent-backlog feature from §7.3. `run_shap.py` now
+reports this automatically for whichever feature tops the attribution.
+
+### 7.5 The fairness audit cannot clear the classifier yet
+
+The Phase 4 classifier predicts `certified` for all 7,000 test cases, so demographic
+parity difference and equalized odds difference are **exactly 0.000 for every grouping
+attribute**. That is arithmetic, not evidence: a model that certifies everyone treats all
+groups identically and is useless. `run_audit.py` detects this and refuses to report it
+as a pass. **Never quote those zeros.**
+
+Retraining with `--balanced` gives a genuinely non-degenerate audit, verified:
+
+| attribute | DP difference | EO difference | selection-rate ratio |
+|---|---:|---:|---:|
+| employer size | 0.023 | 0.042 | 0.977 |
+| occupation (SOC) | 0.052 | 0.052 | 0.948 |
+| worksite region | 0.037 | 0.039 | 0.963 |
+
+All under the 0.10 threshold and well above the four-fifths screen — a real pass. The
+audit in `reports/` is the unbalanced Phase 4 model, because that is what the artifacts
+directory holds; regenerate with the balanced model before citing outcome fairness.
+
+**Regressor:** zero flags, but only because the flagging is *relative*. The model
+under-predicts by 89 days for everyone; group departures from that global bias are all
+under 21 days. An earlier version flagged absolute bias and produced 22 near-identical
+"disparities" that were really one model defect repeated. The global optimism is an
+accuracy problem (§7.3), not a fairness one, and no fairness intervention would fix it.
+
+### 7.6 Temporal validation: the model is stable, not degrading
+
+Five expanding-window folds (train ≤ N, test N+1) over `data/processed_decision`:
+
+| fold | train | test | RMSE | baseline | improvement |
+|---:|---|---:|---:|---:|---:|
+| 1 | 2018-2019 | 2020 | 145.9 | 167.6 | +12.9% |
+| 2 | 2018-2020 | 2021 | 162.0 | 191.6 | +15.5% |
+| 3 | 2018-2021 | 2022 | 211.7 | 250.4 | +15.5% |
+| 4 | 2018-2022 | 2023 | 229.3 | 272.6 | +15.9% |
+| 5 | 2018-2023 | 2024 | 159.8 | 182.5 | +12.5% |
+
+**Raw RMSE nearly doubles then falls back — but that is the target moving, not the model
+failing.** The baseline moves in lockstep (168 → 273 → 183). Improvement over baseline is
+flat at −0.05 pp/year. Quoting raw RMSE across periods of differing difficulty would
+manufacture a trend that is not there; the improvement column is the honest read.
+
+The classifier is flat and near-chance in every fold (ROC AUC 0.530–0.541, accuracy never
+more than 0.0001 from the majority baseline, 1–2 classes ever predicted). Stable, not
+drifting — a feature-availability problem, not a drift problem.
+
+**The harness confirms §7.4 across all five folds.** Running `--keep-year-features`:
+
+| fold | dropped (default) | kept | baseline |
+|---:|---:|---:|---:|
+| 1 | **145.9** | 170.8 | 167.6 |
+| 2 | **162.0** | 187.3 | 191.6 |
+| 3 | **211.7** | 232.6 | 250.4 |
+| 4 | **229.3** | 235.4 | 272.6 |
+| 5 | **159.8** | 155.8 | 182.5 |
+
+Dropping the absolute-year column wins in 4 of 5 folds, by 6–25 days; in fold 1 keeping it
+makes the model *worse than baseline*. This is far stronger evidence than the single-split
+finding, and it settles the question: absolute-year columns do not belong in a temporally
+validated model.
+
+`--scheme rolling --window 3` also helps during the backlog shift (fold 3: 204.2 vs 211.7;
+fold 4: 206.9 vs 229.3) — forgetting older regimes is worth testing properly.
+
+### 7.7 The API: omitted optional fields are not neutral
+
+Same case, sparse vs complete input:
+
+| request | predicted days |
+|---|---:|
+| required fields only (+ employees, refile) | **468.2** |
+| same case with citizenship, class_of_admission, education, skill level, NAICS, year established, experience | **263.6** |
+
+A 205-day swing. The cause: `citizenship` was never missing in the training data, so a
+missing value is a branch the model never really fitted — SHAP attributed **+134 days
+(35% of the total attribution)** to `citizenship = missing` alone. The API now computes
+this per request and returns an `input_warnings` list naming any absent field absorbing
+more than 10% of the attribution. **Do not treat the optional fields as genuinely
+optional.**
+
+A cleaner fix for later: train with realistic missingness in those columns so the missing
+branch is actually fitted, or require the fields outright.
+
+### 7.8 Frontend notes
+
+**Run both servers.** The web app is useless without the API:
+
+```bash
+uvicorn api.main:app --port 8000
+```
+```bash
+cd web && npm run dev
+```
+
+**CORS** is enabled in `api/main.py` for `localhost`/`127.0.0.1` on ports 3000-3001.
+Override with `PERM_API_CORS_ORIGINS` (comma-separated). Verified: preflight from
+`http://localhost:3000` returns the correct `access-control-allow-origin`.
+
+**Form options come from the model, not a hardcoded list.** `GET /meta/options` returns
+the fitted bundle's own category levels (37 SOC codes, 26 states, 30 citizenships…), so
+the UI cannot offer a value the model has never seen. A hand-maintained list would drift
+out of sync with the next retrain.
+
+**Next 16, not 14 or 15.** npm audit flagged a high-severity advisory covering all of
+14.x and 15.x; only 16.3.3 is patched. Current install: 0 vulnerabilities.
+
+**The dev server does not render inside sandboxed browser tooling.** Turbopack's dev
+chunk URLs get 403'd there, so hydration never starts and the page looks inert. `npm run
+build && npx next start` works fine. This affects automated browser testing only — a
+normal browser on localhost is unaffected.
+
+**`agentRules: false`** is set in `next.config.mjs`; Next 16 otherwise writes its own
+`AGENTS.md`/`CLAUDE.md` into `web/` on every dev start.
+
+### 7.2 Remaining questions
+
 1. **How is "employer size" defined?** The real `EMPLOYER_NUM_EMPLOYEES` field is
    inconsistently populated across fiscal years (8.2% null even in the synthetic file, and worse
    in reality). The alternative is a filing-volume proxy computed per employer. This choice
@@ -169,19 +539,27 @@ not developers).
 
 Roadmap position — everything below is unstarted:
 
-- [ ] `git init` + first commit
-- [ ] Create `.venv`, `pip install -r requirements.txt`
-- [ ] **`src/data_prep/build_dataset.py`** — ingest `data/raw/`, harmonise schema across FYs
-      (SOC drift, date formats, employer names, wage annualisation), write parquet to
-      `data/processed/`. Build it against the synthetic file; it must work on the real files unchanged.
-- [ ] `src/validation/` — temporal split framework (split on decision date)
-- [ ] Feature engineering — employer size buckets, SOC major group, Census region, wage ratio
-      (offered/prevailing, annualised), filing quarter
-- [ ] Baseline models, then XGBoost, for both targets; MLflow tracking
+- [x] `git init` + first commit — pushed to
+      https://github.com/mdtarikkhan87-cyber/FINAL-YEAR-PROJECT (public)
+- [x] **`src/data_prep/build_dataset.py`** — schema resolution/validation, cleaning,
+      target engineering, temporal split, `data/processed/` output
+- [x] Feature engineering — employer size buckets, SOC major group, Census region,
+      annualised wage ratio, filing quarter (31 features, `ft.FEATURE_COLUMNS`)
+- [x] Baseline + XGBoost models for both targets, MLflow tracking (`src/models/`)
+- [x] SHAP explainability (`src/explainability/`) — 13 plots + `reports/shap_report.md`
+- [x] Fairness audit (`src/fairness/`) — `reports/fairness_report.md` + 2 plots
+- [x] Temporal validation harness (`src/validation/`) — 5 folds, expanding + rolling
+- [x] FastAPI service (`api/`) — predict/explain endpoints, verified end to end
+- [x] Next.js frontend (`web/`) — landing, predictor, methodology; full flow verified
+- [ ] **Decide §7.1** (split key) and make it the default in `build_dataset.py`
+- [ ] Add the recent-backlog feature described in §7.3 — the highest-value modelling change
+- [ ] Create a real `.venv` and `pip install -r requirements.txt`; deps currently sit in
+      system Python
+- [ ] Tests for `src/data_prep/` and `src/models/` — there are none
 - [ ] SHAP, fairlearn audit, FastAPI, Streamlit, Docker, write-up
 
-Suggested next task: `build_dataset.py`. It's the piece everything else waits on, and the
-synthetic file was built specifically to make it testable.
+Suggested next task: settle §7.1, then the recent-backlog feature. SHAP is ready to start
+whenever, since the saved bundles carry the fitted model plus its category levels.
 
 ---
 
@@ -197,3 +575,10 @@ synthetic file was built specifically to make it testable.
   generator. No accuracy score, SHAP plot, or fairness metric from this file belongs in
   `reports/` or `paper/` without a synthetic-data label.
 - The generator prints ASCII only — the Windows console default codepage mangles em dashes.
+- **MLflow 3.x refuses the old `./mlruns` file store.** Tracking runs on SQLite at
+  `mlflow.db` with artifacts in `mlartifacts/` (both gitignored). Launch the UI with
+  `mlflow ui --backend-store-uri "sqlite:///mlflow.db"` from the project root — plain
+  `mlflow ui` will not find the runs.
+- `data/processed_decision/` holds a decision-split copy of the dataset for the §7.1
+  comparison. It is gitignored and rebuildable with
+  `python -m src.data_prep.build_dataset --split-on decision --out-dir data/processed_decision`.

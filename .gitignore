@@ -3,6 +3,7 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+data/processed_decision/
 
 # --- generated reports ------------------------------------------------------
 reports/*
@@ -11,6 +12,8 @@ reports/*
 # --- experiment tracking / models -------------------------------------------
 mlruns/
 mlartifacts/
+mlflow.db
+src/models/artifacts/
 *.pkl
 *.joblib
 *.onnx
@@ -44,3 +47,14 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# --- web frontend (Next.js) -------------------------------------------------
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+web/*.tsbuildinfo
+web/.env.local
+
+# --- tooling output (not project source) ------------------------------------
+graphify-out/

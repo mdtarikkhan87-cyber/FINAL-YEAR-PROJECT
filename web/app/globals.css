@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-white text-ink-900;
+  }
+  ::selection {
+    @apply bg-accent-200 text-ink-950;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-5 sm:px-8;
+  }
+  .card {
+    @apply rounded-xl border border-ink-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)];
+  }
+  .label {
+    @apply mb-1.5 block text-[13px] font-medium text-ink-700;
+  }
+  .input {
+    @apply w-full rounded-lg border border-ink-300 bg-white px-3 py-2 text-sm text-ink-900
+           placeholder:text-ink-400 outline-none transition
+           focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20
+           disabled:bg-ink-50 disabled:text-ink-400;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-accent-600 px-5 py-2.5
+           text-sm font-semibold text-white transition
+           hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500/40
+           disabled:cursor-not-allowed disabled:bg-ink-300;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-ink-300
+           bg-white px-4 py-2 text-sm font-medium text-ink-700 transition
+           hover:border-ink-400 hover:bg-ink-50;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+}

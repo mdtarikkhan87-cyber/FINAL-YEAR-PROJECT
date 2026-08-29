@@ -1,7 +1,7 @@
 # Handover — Predicting PERM Visa Processing Time & Outcome
 
 **Last session:** 2026-08-28
-**Phase:** 9 of ~11 — through to Dockerfiles and compose for the full stack.
+**Phase:** 10 of ~11 — deployment-ready: env config, production CORS, DEPLOYMENT.md.
 
 ---
 
@@ -59,11 +59,13 @@ final year project/
 │       ├── harness.py             fold construction, per-fold fit/score, trend analysis
 │       └── run_validation.py      CLI; writes reports/temporal_validation_report.md
 ├── api/
+│   ├── config.py                      all env-driven settings + validation
 │   ├── schemas.py                     Pydantic request/response models + validation
 │   ├── store.py                       bounded in-memory prediction + SHAP store
 │   ├── predictor.py                   model loading, feature derivation, SHAP
 │   └── main.py                        FastAPI app (3 endpoints + /health)
 ├── app/                               empty (Streamlit stub — superseded by web/)
+├── DEPLOYMENT.md                      Vercel + Railway/Render, step by step
 ├── docker-compose.yml                 runs api + web together
 ├── .dockerignore                      root context (api image)
 ├── web/                               Next.js 16 + Tailwind + recharts frontend
@@ -561,6 +563,35 @@ calls the API directly and exercises CORS.
 gitignored. Generate them before the first build, or the api container starts, reports
 itself unhealthy, and returns 503 (and compose will hold `web` back, by design).
 
+### 7.10 Deployment readiness
+
+All configuration is environment-driven through `api/config.py`, which validates at
+import and **raises rather than starting misconfigured**: a `*` CORS origin in
+production, an origin without a scheme, an unknown `PERM_API_ENV`, a zero store
+capacity. Verified across nine configurations.
+
+**Two fixes that would have broken a real deploy:**
+
+1. **The Dockerfile hardcoded `--port 8000`.** Railway, Render, Fly and Cloud Run all
+   inject `PORT` and route to it; the service would have been unreachable on every one.
+   Now `CMD uvicorn ... --port ${PORT:-8000}` in shell form so it expands at start.
+2. **No production CORS discipline.** The old default fell back to localhost origins
+   regardless of environment. Production now gets no fallback at all — a deployment that
+   forgets to configure origins gets none, rather than silently inheriting a laptop's.
+
+**Liveness vs readiness.** `/health` always returns 200 while the process serves;
+`/ready` returns 503 until the bundles load. Platform health checks must point at
+`/health` — pointing them at `/ready` would restart-loop a deploy that cannot find its
+models instead of leaving it up to report why. Verified both paths.
+
+**Model bundles are now committed** (3.9 MB). They are version-coupled to the pins in
+`api/requirements.txt`; bump those and you must retrain and recommit in the same change
+or the container fails at unpickling.
+
+**Still single-instance only.** The prediction store is in-process memory, so
+`/explain/{id}` 404s roughly half the time behind two replicas. `DEPLOYMENT.md` §0 says
+this plainly; it needs Redis before scaling.
+
 ### 7.2 Remaining questions
 
 1. **How is "employer size" defined?** The real `EMPLOYER_NUM_EMPLOYEES` field is
@@ -600,6 +631,8 @@ Roadmap position — everything below is unstarted:
 - [x] Next.js frontend (`web/`) — landing, predictor, methodology; full flow verified
 - [x] Dockerfiles + compose — **written and validated, but never built: Docker is
       not installed on this machine (see §7.9)**
+- [x] Deployment readiness — `api/config.py`, production CORS, `/` and `/ready`,
+      committed model bundles, `DEPLOYMENT.md` (§7.10). **Nothing deployed yet.**
 - [ ] **Decide §7.1** (split key) and make it the default in `build_dataset.py`
 - [ ] Add the recent-backlog feature described in §7.3 — the highest-value modelling change
 - [ ] Create a real `.venv` and `pip install -r requirements.txt`; deps currently sit in

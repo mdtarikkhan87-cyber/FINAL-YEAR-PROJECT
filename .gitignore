@@ -13,10 +13,16 @@ reports/*
 mlruns/
 mlartifacts/
 mlflow.db
-src/models/artifacts/
 *.pkl
-*.joblib
 *.onnx
+
+# Trained model bundles ARE committed (~3.9 MB total): the deployed backend
+# loads them at startup and they are far too small to justify object storage.
+# The native XGBoost exports are not -- they duplicate the bundles without the
+# category levels and feature order the service needs, so nothing loads them.
+src/models/artifacts/*_xgb.json
+!src/models/artifacts/*_bundle.joblib
+!src/models/artifacts/*_metadata.json
 
 # --- python -----------------------------------------------------------------
 __pycache__/

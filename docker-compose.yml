@@ -27,21 +27,25 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
+      # See DEPLOYMENT.md section 7 for the full variable reference.
+      PERM_API_ENV: ${PERM_API_ENV:-development}
       # Origins allowed to call the API directly from a browser. The frontend
       # normally goes through its own /api proxy and never triggers CORS, but
       # this keeps direct access working for /docs and for a browser pointed
       # straight at the API.
       PERM_API_CORS_ORIGINS: >-
         http://localhost:${WEB_PORT:-3000},http://127.0.0.1:${WEB_PORT:-3000}
+      PERM_API_ARTIFACT_DIR: /app/src/models/artifacts
+      PERM_API_STORE_CAPACITY: ${PERM_API_STORE_CAPACITY:-500}
     healthcheck:
       test:
         - CMD
         - python
         - -c
         - |
-          import json, sys, urllib.request
-          d = json.load(urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=4))
-          sys.exit(0 if d.get("models_loaded") else 1)
+          import os, urllib.request
+          urllib.request.urlopen(
+              "http://127.0.0.1:" + os.getenv("PORT", "8000") + "/ready", timeout=4)
       interval: 15s
       timeout: 5s
       retries: 5

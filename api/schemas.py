@@ -258,9 +258,33 @@ class OptionsResponse(BaseModel):
     outcome_classes: list[str]
 
 
+class ServiceInfo(BaseModel):
+    """Returned from GET / so a visitor landing on the base URL knows where they are."""
+
+    service: str
+    version: str
+    environment: str
+    docs: str | None
+    endpoints: dict[str, str]
+    warning: str
+
+
 class HealthResponse(BaseModel):
-    status: str
+    """Liveness. Always 200 while the process serves; `status` carries the nuance."""
+
+    status: str = Field(..., description="'ok' when models are loaded, else 'degraded'.")
+    version: str
+    environment: str
     models_loaded: list[str]
     stored_predictions: int
     store_capacity: int
     warning: str
+
+
+class ReadinessResponse(BaseModel):
+    """Readiness. 503 when the models are not loaded and predictions cannot be served."""
+
+    ready: bool
+    models_loaded: list[str]
+    errors: list[str] = Field(default_factory=list)
+    artifact_dir: str

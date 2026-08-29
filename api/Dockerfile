@@ -17,7 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Without it, importing xgboost fails at container start with a missing
 # libgomp.so.1, which is an unhelpful error to debug from a crash loop.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 curl \
+    && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -38,16 +38,22 @@ RUN useradd --create-home --uid 1001 appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
+# Defaults only. Every one of these is overridden by the platform or the
+# compose file; see DEPLOYMENT.md for what to set where.
+ENV PORT=8000 \
+    PERM_API_ENV=production \
+    PERM_API_ARTIFACT_DIR=/app/src/models/artifacts
+
 EXPOSE 8000
 
-ENV PERM_API_CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:3000"
+# Probes /ready, which returns 503 until the model bundles are actually loaded.
+# A container that answers HTTP but cannot predict is not ready for the frontend
+# to depend on. Uses $PORT so the check follows the platform's port.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.getenv('PORT','8000') + '/ready', timeout=4)" || exit 1
 
-# Reports unhealthy until the model bundles are actually loaded, not merely
-# until the process is listening. A container that answers HTTP but cannot
-# predict is not ready for the frontend to depend on.
-HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=5 \
-    CMD python -c "import json,urllib.request,sys; \
-d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)); \
-sys.exit(0 if d.get('models_loaded') else 1)"
-
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form on purpose: ${PORT} must be expanded when the container starts, not
+# baked in at build time. Railway, Render, Fly and Cloud Run all inject PORT and
+# route traffic to it -- a hardcoded --port 8000 makes the service unreachable
+# on every one of them.
+CMD uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}

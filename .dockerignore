@@ -1,0 +1,34 @@
+# Build context for the API image (project root).
+# Keep src/models/artifacts/*.joblib -- the API loads those at startup.
+
+.git/
+.gitignore
+**/__pycache__/
+**/*.py[cod]
+.venv/
+venv/
+
+# Research data and outputs: large, regenerable, never read by the API.
+data/
+reports/
+mlruns/
+mlartifacts/
+mlflow.db
+graphify-out/
+paper/
+
+# The native XGBoost .json exports are ~40 MB and unused at serving time;
+# the API loads the *_bundle.joblib files, which also carry the category
+# levels and feature order the raw booster lacks.
+src/models/artifacts/*_xgb.json
+
+# The frontend has its own image and context.
+web/
+app/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+HANDOVER.md

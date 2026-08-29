@@ -1,0 +1,34 @@
+# Serving-only dependencies for the FastAPI container.
+#
+# Deliberately NOT the project's root requirements.txt: that file carries the
+# research stack (mlflow, fairlearn, jupyter, streamlit, pytest, linters) which
+# the API never imports and which would roughly double the image.
+#
+# Versions are pinned to the set verified working together in development, so a
+# rebuild months from now produces the same container rather than whatever pip
+# resolves that day.
+
+# --- web layer --------------------------------------------------------------
+fastapi==0.119.0
+uvicorn[standard]==0.37.0
+pydantic==2.11.10
+python-multipart==0.0.20
+
+# --- numerical core ---------------------------------------------------------
+numpy==2.2.6
+pandas==2.3.3
+scipy==1.16.2
+
+# --- model loading and inference --------------------------------------------
+# joblib unpickles the saved bundle; that bundle contains an XGBoost estimator,
+# so xgboost and scikit-learn must be present even though the API imports
+# neither by name.
+joblib==1.5.2
+scikit-learn==1.7.2
+xgboost==3.4.1
+
+# --- explanations -----------------------------------------------------------
+# shap imports matplotlib at module load, so it is a hard runtime requirement
+# here even though the API renders no figures.
+shap==0.52.0
+matplotlib==3.10.6

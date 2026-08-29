@@ -1,0 +1,74 @@
+# PERM predictor: FastAPI backend + Next.js frontend.
+#
+#   docker compose up --build
+#   -> http://localhost:3000   (site)
+#      http://localhost:8000/docs (API)
+#
+# PREREQUISITE: the API image copies the trained model bundles from
+# src/models/artifacts/. Those are gitignored, so generate them once first:
+#
+#   python -m src.data_prep.make_synthetic
+#   python -m src.data_prep.build_dataset --split-on decision
+#   python -m src.models.train_regressor
+#   python -m src.models.train_classifier
+#
+# Without them the api container still starts, but reports itself unhealthy and
+# returns 503 from the prediction endpoints, so the web container will wait.
+
+name: perm-predictor
+
+services:
+  api:
+    build:
+      # Root context: the service imports src/ as well as api/.
+      context: .
+      dockerfile: api/Dockerfile
+    image: perm-api:latest
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # Origins allowed to call the API directly from a browser. The frontend
+      # normally goes through its own /api proxy and never triggers CORS, but
+      # this keeps direct access working for /docs and for a browser pointed
+      # straight at the API.
+      PERM_API_CORS_ORIGINS: >-
+        http://localhost:${WEB_PORT:-3000},http://127.0.0.1:${WEB_PORT:-3000}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json, sys, urllib.request
+          d = json.load(urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=4))
+          sys.exit(0 if d.get("models_loaded") else 1)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # Generous: importing xgboost and shap, then unpickling both bundles and
+      # building two TreeExplainers, is not fast on a cold container.
+      start_period: 60s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: perm-web:latest
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      # THE important variable. Read at request time by the /api proxy route,
+      # so it can be repointed without rebuilding the image:
+      #   local compose -> http://api:8000   (Docker DNS, this network)
+      #   deployed      -> https://api.example.com
+      # It is intentionally NOT a NEXT_PUBLIC_* value; those are baked into the
+      # client bundle at build time and would ship a hostname the user's
+      # browser cannot resolve.
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+    depends_on:
+      api:
+        # Wait for models loaded, not merely for the port to open — otherwise
+        # the first page load races the model unpickling and shows "API offline".
+        condition: service_healthy
+    restart: unless-stopped

@@ -7,8 +7,17 @@
  * polished interface that quietly drops the caveats would misrepresent them.
  */
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+/**
+ * Where the browser sends API calls.
+ *
+ * Unset (containers, production): "/api" — same origin, proxied server-side by
+ * app/api/[...path]/route.ts to API_INTERNAL_URL, which is read at request
+ * time and so can change without rebuilding the image.
+ *
+ * Set (npm run dev, via .env.local): that URL is called directly, which is
+ * simpler locally and exercises the API's CORS configuration.
+ */
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 
 export type WageUnit = "Year" | "Hour" | "Month" | "Week" | "Bi-Weekly";
 

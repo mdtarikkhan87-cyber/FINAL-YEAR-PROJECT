@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+build/
+npm-debug.log*
+
+# Never bake a build-time API URL into the client bundle; the running server
+# reads API_INTERNAL_URL instead.
+.env.local
+.env*.local
+
+Dockerfile
+.dockerignore
+.git/
+.gitignore
+next-env.d.ts
+*.tsbuildinfo

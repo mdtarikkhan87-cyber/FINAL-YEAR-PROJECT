@@ -1,7 +1,7 @@
 # Handover — Predicting PERM Visa Processing Time & Outcome
 
 **Last session:** 2026-08-28
-**Phase:** 8 of ~11 — through to a working Next.js frontend calling the FastAPI service.
+**Phase:** 9 of ~11 — through to Dockerfiles and compose for the full stack.
 
 ---
 
@@ -64,6 +64,8 @@ final year project/
 │   ├── predictor.py                   model loading, feature derivation, SHAP
 │   └── main.py                        FastAPI app (3 endpoints + /health)
 ├── app/                               empty (Streamlit stub — superseded by web/)
+├── docker-compose.yml                 runs api + web together
+├── .dockerignore                      root context (api image)
 ├── web/                               Next.js 16 + Tailwind + recharts frontend
 │   ├── app/{page,predict,about}       landing / predictor / methodology
 │   ├── components/                    Nav, CaseForm, OutcomeChart, ShapChart, …
@@ -244,6 +246,17 @@ oldest evicted, cleared on restart). `/explain` returns the attribution for the 
 that produced the answer rather than recomputing it. Every prediction response carries a
 `model_quality` block stating the model's test metric, its baseline, and its known
 weaknesses — the outcome model's caveat says outright that it does not beat its baseline.
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+Then http://localhost:3000 (site) and http://localhost:8000/docs (API). Override ports
+or the API location with `WEB_PORT`, `API_PORT`, `API_INTERNAL_URL`.
+
+**Never built — see §7.9.** Run the training pipeline first so the model bundles exist.
 
 ### MLflow
 
@@ -514,6 +527,40 @@ normal browser on localhost is unaffected.
 **`agentRules: false`** is set in `next.config.mjs`; Next 16 otherwise writes its own
 `AGENTS.md`/`CLAUDE.md` into `web/` on every dev start.
 
+### 7.9 Docker: written, not built
+
+`api/Dockerfile`, `web/Dockerfile`, and `docker-compose.yml` exist and are internally
+consistent, but **no image has ever been built**. Docker Desktop is not installed here
+(WSL2 is present; Docker is not). Everything short of the build was verified:
+
+- compose YAML parses; every `COPY` source path exists
+- `.dockerignore` keeps the `*_bundle.joblib` model files and drops the two unused
+  ~2 MB native `*_xgb.json` exports
+- the API's serving dependency set was derived by importing `api.main` and listing the
+  third-party modules actually pulled in
+- **the runtime wiring was tested for real** by running `.next/standalone/server.js`
+  with `API_INTERNAL_URL` set and `NEXT_PUBLIC_API_BASE` unset — exactly the container
+  configuration. Full flow passed; the browser made only same-origin `/api/*` calls.
+
+First `docker compose up --build` may still surface image-level problems — a missing
+system library, a base-image tag change, an amd64/arm64 wheel gap. Expect to iterate once.
+
+**The API-URL design is the part worth understanding.** `NEXT_PUBLIC_*` variables are
+inlined into the client bundle at *build* time. Baking `http://api:8000` would ship a
+hostname only resolvable inside the Docker network and every browser request would fail;
+baking `http://localhost:8000` would work locally and break on deployment, requiring an
+image rebuild to change a URL. So the browser always calls same-origin `/api/*`, and
+`web/app/api/[...path]/route.ts` forwards to `API_INTERNAL_URL` read **per request**.
+One variable, no rebuild, correct in both places — and CORS drops out of the browser
+path entirely (the API still sets it for direct callers such as `/docs`).
+
+`npm run dev` is unchanged: `web/.env.local` sets `NEXT_PUBLIC_API_BASE`, so the browser
+calls the API directly and exercises CORS.
+
+**Prerequisite:** the API image copies `src/models/artifacts/*.joblib`, which are
+gitignored. Generate them before the first build, or the api container starts, reports
+itself unhealthy, and returns 503 (and compose will hold `web` back, by design).
+
 ### 7.2 Remaining questions
 
 1. **How is "employer size" defined?** The real `EMPLOYER_NUM_EMPLOYEES` field is
@@ -551,6 +598,8 @@ Roadmap position — everything below is unstarted:
 - [x] Temporal validation harness (`src/validation/`) — 5 folds, expanding + rolling
 - [x] FastAPI service (`api/`) — predict/explain endpoints, verified end to end
 - [x] Next.js frontend (`web/`) — landing, predictor, methodology; full flow verified
+- [x] Dockerfiles + compose — **written and validated, but never built: Docker is
+      not installed on this machine (see §7.9)**
 - [ ] **Decide §7.1** (split key) and make it the default in `build_dataset.py`
 - [ ] Add the recent-backlog feature described in §7.3 — the highest-value modelling change
 - [ ] Create a real `.venv` and `pip install -r requirements.txt`; deps currently sit in

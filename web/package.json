@@ -4,12 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --no-turbopack",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "^16.3.3",
+    "next": "16.2.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^2.12.7"

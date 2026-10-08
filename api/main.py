@@ -384,7 +384,4 @@ def explain(prediction_id: str) -> ExplanationResponse:
         reconstruction_check=round(record.reconstruction, 4),
         note=note,
     )
-    if __name__ == "__main__":
-        import os
-        import uvicorn
-        uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    
